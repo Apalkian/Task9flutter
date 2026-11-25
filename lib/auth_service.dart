@@ -6,8 +6,12 @@ class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn? _googleSignIn = kIsWeb ? null : GoogleSignIn();
 
+  /// Last error text, so the screens can show WHY something failed.
+  String? lastError;
+
   // GOOGLE SIGN-IN
   Future<User?> signInWithGoogle() async {
+    lastError = null;
     try {
       if (kIsWeb) {
         final GoogleAuthProvider googleProvider = GoogleAuthProvider();
@@ -15,8 +19,15 @@ class AuthService {
             await _auth.signInWithPopup(googleProvider);
         return userCredential.user;
       } else {
-        final googleUser = await _googleSignIn!.signIn();
-        if (googleUser == null) return null; // user cancelled
+        // Clear any stale/half-finished Google session first. This fixes
+        // many "stuck loading" cases.
+        await _googleSignIn!.signOut();
+
+        final googleUser = await _googleSignIn.signIn();
+        if (googleUser == null) {
+          lastError = 'Google sign-in was cancelled.';
+          return null; // user cancelled
+        }
 
         final googleAuth = await googleUser.authentication;
         final credential = GoogleAuthProvider.credential(
@@ -26,6 +37,7 @@ class AuthService {
         return (await _auth.signInWithCredential(credential)).user;
       }
     } catch (e) {
+      lastError = e.toString();
       debugPrint('Google sign-in error: $e');
       return null;
     }
@@ -33,11 +45,13 @@ class AuthService {
 
   // EMAIL/PASSWORD REGISTER
   Future<User?> registerWithEmail(String email, String password) async {
+    lastError = null;
     try {
       final userCredential = await _auth.createUserWithEmailAndPassword(
           email: email, password: password);
       return userCredential.user;
     } catch (e) {
+      lastError = e.toString();
       debugPrint('Registration error: $e');
       return null;
     }
@@ -45,17 +59,19 @@ class AuthService {
 
   // EMAIL/PASSWORD LOGIN
   Future<User?> signInWithEmail(String email, String password) async {
+    lastError = null;
     try {
       final userCredential = await _auth.signInWithEmailAndPassword(
           email: email, password: password);
       return userCredential.user;
     } catch (e) {
+      lastError = e.toString();
       debugPrint('Login error: $e');
       return null;
     }
   }
 
-  // FORGOT PASSWORD  (new)
+  // FORGOT PASSWORD
   // Returns null on success, or a readable error message.
   Future<String?> sendPasswordReset(String email) async {
     try {

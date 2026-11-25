@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'auth_service.dart';
@@ -44,66 +45,50 @@ class _LoginPageState extends State<LoginPage> {
       if (!user.emailVerified) {
         // Sign out again so the app does not open the Home page.
         await auth.signOut();
+        if (!mounted) return;
         _snack('Please verify your email before logging in.');
       } else {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => HomePage()),
+          MaterialPageRoute(builder: (_) => const HomePage()),
         );
       }
     } else {
-      _snack('Invalid email or password');
+      _snack('Login failed: ${auth.lastError ?? 'Invalid email or password'}');
     }
   }
 
   Future<void> _loginWithGoogle() async {
     setState(() => loading = true);
-    final user = await auth.signInWithGoogle();
+    User? user;
+    try {
+      // Gives up after 30 seconds so the screen can never stay stuck.
+      user = await auth
+          .signInWithGoogle()
+          .timeout(const Duration(seconds: 30));
+    } catch (e) {
+      debugPrint('Google sign-in timeout/error: $e');
+    }
     if (!mounted) return;
     setState(() => loading = false);
+
     if (user != null) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => HomePage()),
+        MaterialPageRoute(builder: (_) => const HomePage()),
       );
+    } else {
+      _snack('Google sign-in failed: '
+          '${auth.lastError ?? 'timed out. Check your internet.'}');
     }
   }
 
   // FORGOT PASSWORD dialog
   Future<void> _forgotPassword() async {
-    final resetCtrl = TextEditingController(text: emailCtrl.text.trim());
-
     final email = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reset password'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Enter your email and we will send you a reset link.'),
-            const SizedBox(height: 12),
-            TextField(
-              controller: resetCtrl,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
-                labelText: 'Email',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, resetCtrl.text.trim()),
-            child: const Text('Send link'),
-          ),
-        ],
-      ),
-    );  // end of showDialog
+      builder: (_) => _ResetDialog(initialEmail: emailCtrl.text.trim()),
+    );
 
     if (email == null) return; // cancelled
     if (email.isEmpty) {
@@ -192,6 +177,64 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Forgot-password dialog as its own widget so its controller is disposed
+/// safely (avoids the red "_dependents.isEmpty" error screen).
+class _ResetDialog extends StatefulWidget {
+  final String initialEmail;
+  const _ResetDialog({required this.initialEmail});
+
+  @override
+  State<_ResetDialog> createState() => _ResetDialogState();
+}
+
+class _ResetDialogState extends State<_ResetDialog> {
+  late final TextEditingController resetCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    resetCtrl = TextEditingController(text: widget.initialEmail);
+  }
+
+  @override
+  void dispose() {
+    resetCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Reset password'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Enter your email and we will send you a reset link.'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: resetCtrl,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'Email',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, resetCtrl.text.trim()),
+          child: const Text('Send link'),
+        ),
+      ],
     );
   }
 }
